@@ -6,13 +6,6 @@ from read_digits import *
 from regions import *
 
 
-def safe_int(val):
-    if val.isdigit():
-        return int(val)
-    else:
-        return 0
-
-
 def disp_tetris_old(field, w=100, h=200):
     canvas = np.zeros((h, w, 3), np.uint8)
     y_block_size = h / 20
@@ -51,7 +44,6 @@ def disp_tetris(field, screen, w, h):
                 pygame.draw.rect(screen, (0, 255, 0), block_rect)
                 pygame.draw.rect(screen, (255, 255, 255), block_rect, 1)
     return True
-
 
 
 def img_to_tetris_array(img):

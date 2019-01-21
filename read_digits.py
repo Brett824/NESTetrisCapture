@@ -1,8 +1,5 @@
-# import the necessary packages
 import numpy as np
-import argparse
 import imutils
-import glob
 import cv2
 from imutils import contours
 
@@ -26,10 +23,9 @@ def get_template_digits():
 
 
 def extract_digit(img):
+    # do correlation based template matching, take the highest scoring digit
     scores = []
     for (digit, digitROI) in DIGITS.items():
-        # apply correlation-based template matching, take the
-        # score, and update the scores list
         result = cv2.matchTemplate(img, digitROI,
                                    cv2.TM_CCOEFF)
         (_, score, _, _) = cv2.minMaxLoc(result)
@@ -42,8 +38,9 @@ def extract_digit(img):
 def extract_digits(img, cachekey):
     res = ""
     ref = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # ref = cv2.threshold(ref, 10, 255, cv2.THRESH_BINARY)[1]
     ret, ref = cv2.threshold(ref, 100, 255, cv2.THRESH_BINARY)
+    # use contours to find bounding boxes around each digit in the score region
+    # but only do it once - the digits will always be in the same place, so just store those
     if not REGION_CACHE.get(cachekey):
         refCnts = cv2.findContours(ref.copy(), cv2.RETR_EXTERNAL,
                                    cv2.CHAIN_APPROX_SIMPLE)

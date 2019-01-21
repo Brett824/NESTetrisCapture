@@ -1,7 +1,5 @@
 import pygame
 from pygame.locals import *
-from read_digits import *
-from regions import *
 import win32api
 import win32con
 import win32gui
@@ -10,12 +8,12 @@ import os
 
 # TODO hook into the main capture.py
 
+
 def selector():
     os.environ['SDL_VIDEO_WINDOW_POS'] = '8,31'
     pygame.init()
     screen = pygame.display.set_mode((1000, 750), RESIZABLE)
     winInfo = pygameWindowInfo.PygameWindowInfo()
-    # del os.environ['SDL_VIDEO_WINDOW_POS']
     done = False
     fuchsia = (255, 0, 128)  # Transparency color
 
