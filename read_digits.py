@@ -49,7 +49,7 @@ def extract_digit(img, template=True):
     return str(np.argmax(scores))
 
 
-def extract_digits(img, cachekey, template=True):
+def extract_digits(img, cachekey, template=True, length=None):
     res = ""
     ref = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     ret, ref = cv2.threshold(ref, 100, 255, cv2.THRESH_BINARY)
@@ -75,6 +75,8 @@ def extract_digits(img, cachekey, template=True):
                 continue
             good_rects.append((x, y, w, h))
             res += extract_digit(roi)
+        if length is not None and len(res) != length:
+            return ""
         if res:
             REGION_CACHE[cachekey] = good_rects
         return res

@@ -86,7 +86,7 @@ def capture_tetris(capture_params):
         img_raw = sct.grab(capture_params)
         img = np.asarray(img_raw)
         score = get_score(img)
-        score_string = extract_digits(score, "score", template=False)
+        score_string = extract_digits(score, "score", template=False, length=6)
         board = get_board(img)
 
         field = img_to_tetris_array(board)
