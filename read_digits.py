@@ -17,25 +17,39 @@ def get_template_digits():
         c = imutils.grab_contours(refCnts)[0]
         (x, y, w, h) = cv2.boundingRect(c)
         roi = ref[y:y + h, x:x + w]
+        roi = cv2.resize(roi, (100, 100))
         roi = imutils.resize(roi, height=100)
         DIGITS[i] = roi
     return DIGITS
 
 
-def extract_digit(img):
+def extract_digit(img, template=True):
     # do correlation based template matching, take the highest scoring digit
+    img = cv2.resize(img, (100, 100))
     scores = []
+    score = 0
+    if not DIGITS:
+        raise Exception("Tried reading digits without initializing templates")
+    diffs = {}
     for (digit, digitROI) in DIGITS.items():
-        result = cv2.matchTemplate(img, digitROI,
-                                   cv2.TM_CCOEFF)
-        (_, score, _, _) = cv2.minMaxLoc(result)
-        scores.append(score)
+        if not template:
+            res = cv2.absdiff(img, digitROI)
+            # res != 0 is a hack b/c count_nonzero is better optimized for bools
+            percentage = float(np.count_nonzero(res != 0) * 100) / res.size
+            diffs[digit] = percentage
+        else:
+            result = cv2.matchTemplate(img, digitROI,
+                                       cv2.TM_CCOEFF_NORMED)
+            (_, score, _, _) = cv2.minMaxLoc(result)
+            scores.append(score)
+    if diffs:
+        return str(min(diffs, key=diffs.get))
     if not score:
         return ''
     return str(np.argmax(scores))
 
 
-def extract_digits(img, cachekey):
+def extract_digits(img, cachekey, template=True):
     res = ""
     ref = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     ret, ref = cv2.threshold(ref, 100, 255, cv2.THRESH_BINARY)
@@ -73,5 +87,11 @@ def extract_digits(img, cachekey):
             roi = imutils.resize(orig_roi, height=100)
             if roi.shape[-1] > 150:
                 continue
-            res += extract_digit(roi)
+            res += extract_digit(roi, template=template)
         return res
+
+
+if __name__ == '__main__':
+    get_template_digits()
+    print extract_digits(cv2.imread("score.png"), "score")
+    print extract_digits(cv2.imread("score.png"), "score", template=False)
