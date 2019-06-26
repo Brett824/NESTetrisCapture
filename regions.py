@@ -12,7 +12,8 @@ def set_scales(w, h):
 # coordinates of regions in the reference template,
 REGION_MAP = {
     "score": {"y": (184, 220), "x": (745, 938)},
-    "board": {"y": (133, 675), "x": (372, 687)}
+    "board": {"y": (133, 675), "x": (372, 687)},
+    "lines": {"y": (50, 80), "x": (591, 686)},
 }
 
 
@@ -31,3 +32,7 @@ def get_score(img):
 
 def get_board(img):
     return get_region(img, "board")
+
+
+def get_lines(img):
+    return get_region(img, "lines")
