@@ -1,6 +1,8 @@
 import numpy as np
 import pygame
 import cv2
+import json
+import random
 from mss import mss
 from read_digits import *
 from regions import *
@@ -68,85 +70,172 @@ def img_to_tetris_array(img):
     return field
 
 
-def capture_tetris(cropper):
+def is_clean_board(board):
+    """
+    returns if the board is clean or not
+    it only checks for pieces in the rows past the first two
+    nes tetris pieces all start in the first two rows
+    """
+    return not board[2:].any()
+
+
+def check_end_board(board):
+    """
+    returns if the board indicates the game is over
+    a cheap check is the top 3 rows being full - this will indicate the end "shutter" animation
+    """
+    return board[0:3].all()
+
+
+def screen_capture(cropper):
     capture_params = cropper.capture_params
     sct = mss()
-    done = False
-
-    os.environ['SDL_VIDEO_WINDOW_POS'] = '%s,%s' % (
-        capture_params['left'] + capture_params['width'],
-        capture_params['top']
-    )
-    pygame.init()
-    pygame.display.set_caption("test")
-    get_template_digits()
-    screen = pygame.display.set_mode((capture_params['width'], capture_params['height']))
-    set_scales(capture_params['width'], capture_params['height'])
-    font = pygame.font.Font(None, 30)
-    clock = pygame.time.Clock()
-    lines_stored = "0"
-    tetris_counter = {}
-    temp_line_names = ['single', 'double', 'triple', 'tetris']
-    while not done:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                done = True
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_s:
-                    cv2.imwrite("board_debug.png", board)
-                    cv2.imwrite("lines_debug.png", lines)
-                    cv2.imwrite("score_debug.png", score)
-        screen.fill((0, 0, 0))
-        clock.tick(60)
+    while True:
         img_raw = sct.grab(capture_params)
         img = np.asarray(img_raw)
-        score = get_score(img)
-        # cv2.imwrite("score2.png", score)
-        score_string = extract_digits(score, "score", template=False, length=6)
-        lines = get_lines(img)
-        lines_string = extract_digits(lines, "lines", template=False, length=3)
-        # happens on all black
-        if lines_string and lines_string == '000':
-            tetris_counter = {}
-            lines_stored = lines
-        if lines_string and lines_string != '777' and int(lines_string) < 350:
-            line_diff = int(lines_string) - int(lines_stored)
-            if line_diff < 0:  # score reset?
-                print tetris_counter
-                tetris_counter = {}
-            elif 0 < line_diff < 5:
-                tetris_counter[line_diff] = tetris_counter.get(line_diff, 0) + 1
-                tetris_score = int(tetris_counter.get(4, 0)) * 4
-                print tetris_counter
-                if int(lines_string):
-                    tetris_percent = float(tetris_score) / int(lines_string) * 100
-                else:
-                    tetris_percent = 0
-                print "%s: %s (%%%s)" % (lines_string, temp_line_names[line_diff-1], tetris_percent)
-            elif line_diff != 0:
-                print "weird line diff: %s -> %s" % (lines_stored, lines_string)
-            lines_stored = lines_string
+        yield img
 
-        board = get_board(img)
-        # cv2.imwrite("board2.png", board)
-        field = img_to_tetris_array(board)
-        h, w, _ = board.shape
-        if not disp_tetris(field, screen, w, h):
+
+def video_capture(fn, cropper):
+    cap = cv2.VideoCapture(fn)
+
+    # Read until video is completed
+    while cap.isOpened():
+        ret, img = cap.read()
+        if not ret:
             break
-        fps = font.render(str(int(clock.get_fps())), True, pygame.Color('white'))
-        score_text = font.render(score_string, True, pygame.Color('white'))
-        lines_text = font.render(lines_string, True, pygame.Color('white'))
-        screen.blit(fps, (0, 0))
-        screen.blit(score_text, (200, 0))
-        screen.blit(lines_text, (200, 35))
-        pygame.display.flip()
+        yield cropper.crop(img)
+    cap.release()
 
+
+def init_pygame(capture_params):
+    os.environ['SDL_VIDEO_WINDOW_POS'] = '%s,%s' % (
+        capture_params['left'] + capture_params['width'] + 5,
+        max(capture_params['top'], 40)
+    )
+    pygame.init()
+    pygame.display.set_caption("NESTetrisCapture")
+    screen = pygame.display.set_mode((375, 650))
+    font = pygame.font.Font(None, 30)
+    clock = pygame.time.Clock()
+    return screen, font, clock
+
+
+def capture_tetris(source, capture_params, display=True, fps_limit=60):
+    done = False
+    screen = font = clock = None
+    get_template_digits()
+    set_scales(capture_params['width'], capture_params['height'])
+    if display:
+        screen, font, clock = init_pygame(capture_params)
+    is_playing = False
+    current_game = {}
+    games = []
+    for img in source:
+        if done:
+            break
+        lines = get_lines(img)
+        lines_string = extract_digits(lines, "lines", template=False, length=3, letters=False)
+        board = get_board(img)
+        field = img_to_tetris_array(board)
+        score = get_score(img)
+        score_string = extract_digits(score, "score", template=False, length=6)
+        if lines_string and int(lines_string) == 0 and not is_playing and is_clean_board(field):
+            print "game started"
+            is_playing = True
+            current_game = {
+                'lines': 0,
+                'score': 0,
+                'line_history': [0],
+                'score_history': [(0, 0)],
+                'level': -1
+            }
+        # main logic loop:
+        if is_playing:
+            score = get_score(img)
+            score_string = extract_digits(score, "score", template=False, length=6)
+            lines_num = int(lines_string)
+            score_num = int(score_string)
+            if lines_num > 500 or check_end_board(field):
+                is_playing = False
+                games.append(current_game)
+                print "game ended: %s (%s)" % (current_game['score'], current_game['lines'])
+            if current_game['score'] != score_num:
+                current_game['score'] = score_num
+                current_game['score_history'].append((lines_num, score_num))
+            if current_game['lines'] != lines_num:
+                current_game['lines'] = lines_num
+                current_game['line_history'].append(lines_num)
+        if display:
+            h, w, _ = board.shape
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    done = True
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_s:
+                        cv2.imwrite("board_debug.png", board)
+                        cv2.imwrite("lines_debug.png", lines)
+                        cv2.imwrite("score_debug.png", score)
+                    if event.key == pygame.K_p:
+                        print json.dumps(current_game, indent=4)
+            screen.fill((0, 0, 0))
+            if fps_limit:
+                clock.tick(fps_limit)
+            if not disp_tetris(field, screen, w, h):
+                break
+            score_text = font.render(score_string, True, pygame.Color('white'))
+            lines_text = font.render(lines_string, True, pygame.Color('white'))
+            if fps_limit:
+                fps = font.render(str(int(clock.get_fps())), True, pygame.Color('white'))
+                screen.blit(fps, (0, 0))
+            screen.blit(score_text, (200, 0))
+            screen.blit(lines_text, (200, 35))
+            pygame.display.flip()
+    return games
+
+
+def find_tetris_in_video(fn):
+    cap = cv2.VideoCapture(fn)
+    # Read until video is completed
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    # try to get the board in random frames
+    all_frames = range(0, total)
+    random.shuffle(all_frames)
+    for frame in all_frames:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame)
+        ret, img = cap.read()
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # Display the resulting frame
+        try:
+            cropper = Cropper(gray)
+        except:
+            continue
+        break
+    cap.release()
+    return cropper
 
 if __name__ == '__main__':
-    # capture_params = get_screen_area_widget()
-    sct = mss()
-    img = sct.grab(sct.monitors[0])
-    img = np.asarray(img)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    cropper = Cropper(gray)
-    capture_tetris(cropper)
+    cropper = find_tetris_in_video('youtube_cap_wr.mkv')
+    source = video_capture('youtube_cap_wr.mkv', cropper)
+    import time
+    started = time.time()
+    games = capture_tetris(source, cropper.capture_params, display=True, fps_limit=None)
+    print "took %s seconds" % (time.time() - started)
+    for game in games:
+        print json.dumps(game)
+    # import time
+    # while True:
+    #     try:
+    #         sct = mss()
+    #         img = sct.grab(sct.monitors[0])
+    #         img = np.asarray(img)
+    #         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    #         cropper = Cropper(gray)
+    #     except:
+    #         time.sleep(1)
+    #         continue
+    #     break
+    # capture_params = cropper.capture_params
+    # source = screen_capture(cropper)
+    # games = capture_tetris(source, capture_params)
+    # for game in games:
+    #     print json.dumps(game)

@@ -54,6 +54,18 @@ def _temp_raw_scratch(img2):
     cv2.imwrite("result_%s.png" % input_fn, img3)
 
 
+def display_match(query_img, kp1, captured_img, kp2, good_matches, mask, dst):
+    matchesMask = mask.ravel().tolist()
+    draw_params = dict(matchColor=(0, 255, 0),  # draw matches in green color
+                       singlePointColor=None,
+                       matchesMask=matchesMask,  # draw only inliers
+                       flags=2)
+    captured_img = cv2.polylines(captured_img,[np.int32(dst)],True,255,3, cv2.LINE_AA)
+    img3 = cv2.drawMatches(query_img, kp1, captured_img, kp2, good_matches, None, **draw_params)
+    cv2.imshow("result", img3)
+    cv2.waitKey()
+
+
 class Cropper(object):
     def __init__(self, captured_img):
         query_image = cv2.imread('feature.png', 0)
@@ -83,6 +95,8 @@ class Cropper(object):
         pts = np.float32([[0, 0], [0, h - 1], [w - 1, h - 1], [w - 1, 0]]).reshape(-1, 1, 2)
         dst = cv2.perspectiveTransform(pts, self.transform)
         self.capture_params = self.pts_to_params(dst)
+        if self.capture_params['height'] < 50 or self.capture_params['width'] < 50 or not self.is_rect(dst):
+            raise Exception('Unable to find tetris board')
 
     def pts_to_rect(self, pts):
         top = pts[0][0][1]
@@ -90,6 +104,16 @@ class Cropper(object):
         bottom = pts[2][0][1]
         right = pts[2][0][0]
         return top, left, bottom, right
+
+    def is_rect(self, pts):
+        x_coords = sorted([pts[x][0][0] for x in [0,1,2,3]])
+        y_coords = sorted([pts[x][0][1] for x in [0,1,2,3]])
+        return not (
+            x_coords[1] - x_coords[0] > 5 or
+            x_coords[3] - x_coords[2] > 5 or
+            y_coords[1] - y_coords[0] > 5 or
+            y_coords[3] - y_coords[2] > 5
+        )
 
     def pts_to_params(self, pts):
         top, left, bottom, right = self.pts_to_rect(pts)
@@ -100,9 +124,25 @@ class Cropper(object):
             'height': int(bottom - top),
         }
 
-    def crop(self, img, pts):
-        top, left, bottom, right = self.pts_to_rect(pts)
-        return img[int(top):int(bottom), int(left):int(right)]
+    def crop(self, img, pts=None):
+        if pts:
+            top, left, bottom, right = self.pts_to_rect(pts)
+        else:
+            top = self.capture_params['top']
+            bottom = top + self.capture_params['height']
+            left = self.capture_params['left']
+            right = left + self.capture_params['width']
+        border_top = border_left = 0
+        if top < 0:
+            border_top = abs(top)
+            top = 0
+        if left < 0:
+            border_left = abs(left)
+            left = 0
+        cropped = img[int(top):int(bottom), int(left):int(right)]
+        if border_left or border_top:
+            cropped = cv2.copyMakeBorder(cropped, top=border_top, bottom=0, left=border_left, right=0, borderType=cv2.BORDER_CONSTANT, value=(0,0,0))
+        return cropped
 
     def get_grid(self, img):
         """
