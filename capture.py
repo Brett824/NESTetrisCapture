@@ -3,36 +3,12 @@ import pygame
 import cv2
 import json
 import random
+import time
 from mss import mss
 from read_digits import *
 from regions import *
 from cropper import *
 import os
-
-
-def disp_tetris_old(field, w=100, h=200):
-    canvas = np.zeros((h, w, 3), np.uint8)
-    y_block_size = h / 20
-    x_block_size = w / 10
-    # assuming a 10 by 20 field
-    for y in range(0, 20):
-        for x in range(0, 10):
-            if field[y][x]:
-                top_left_y = y * y_block_size
-                top_left_x = x * x_block_size
-                bottom_right_y = top_left_y + y_block_size
-                bottom_right_x = top_left_x + x_block_size
-                cv2.rectangle(canvas, (top_left_x, top_left_y),
-                              (bottom_right_x, bottom_right_y),
-                              (0, 255, 0), thickness=-1)
-                cv2.rectangle(canvas, (top_left_x, top_left_y),
-                              (bottom_right_x, bottom_right_y),
-                              (255, 255, 255), thickness=1)
-    cv2.imshow('test', canvas)
-    if cv2.waitKey(25) & 0xFF == ord('q'):
-        cv2.destroyAllWindows()
-        return False
-    return True
 
 
 def disp_tetris(field, screen, w, h):
@@ -98,7 +74,6 @@ def screen_capture(cropper):
 
 def video_capture(fn, cropper):
     cap = cv2.VideoCapture(fn)
-
     # Read until video is completed
     while cap.isOpened():
         ret, img = cap.read()
@@ -194,7 +169,7 @@ def capture_tetris(source, capture_params, display=True, fps_limit=60):
     return games
 
 
-def find_tetris_in_video(fn):
+def get_cropper_video(fn):
     cap = cv2.VideoCapture(fn)
     # Read until video is completed
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -213,29 +188,37 @@ def find_tetris_in_video(fn):
     cap.release()
     return cropper
 
-if __name__ == '__main__':
-    cropper = find_tetris_in_video('youtube_cap_wr.mkv')
-    source = video_capture('youtube_cap_wr.mkv', cropper)
+
+def get_cropper_capture():
     import time
-    started = time.time()
-    games = capture_tetris(source, cropper.capture_params, display=True, fps_limit=None)
-    print "took %s seconds" % (time.time() - started)
-    for game in games:
-        print json.dumps(game)
-    # import time
-    # while True:
-    #     try:
-    #         sct = mss()
-    #         img = sct.grab(sct.monitors[0])
-    #         img = np.asarray(img)
-    #         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    #         cropper = Cropper(gray)
-    #     except:
-    #         time.sleep(1)
-    #         continue
-    #     break
-    # capture_params = cropper.capture_params
-    # source = screen_capture(cropper)
-    # games = capture_tetris(source, capture_params)
-    # for game in games:
-    #     print json.dumps(game)
+    while True:
+        try:
+            sct = mss()
+            img = sct.grab(sct.monitors[0])
+            img = np.asarray(img)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            cropper = Cropper(gray)
+        except:
+            time.sleep(1)
+            continue
+        break
+    return cropper
+
+
+def run_video(fn):
+    cropper = get_cropper_video(fn)
+    source = video_capture(fn, cropper)
+    games = capture_tetris(source, cropper.capture_params, display=False, fps_limit=None)
+    return games
+
+
+def run_capture():
+    cropper = get_cropper_capture()
+    capture_params = cropper.capture_params
+    source = screen_capture(cropper)
+    games = capture_tetris(source, capture_params)
+    return games
+
+
+if __name__ == '__main__':
+    run_video('youtube_cap_wr.mkv')
