@@ -9,7 +9,7 @@ REGION_CACHE = {}
 
 
 def get_template_digits():
-    for i in range(0, 10):
+    for i in range(0, 14):
         ref = cv2.imread("digits/%s.png" % i)
         ref = cv2.cvtColor(ref, cv2.COLOR_BGR2GRAY)
         ref = cv2.threshold(ref, 10, 255, cv2.THRESH_BINARY)[1]
@@ -23,7 +23,7 @@ def get_template_digits():
     return DIGITS
 
 
-def extract_digit(img, template=True):
+def extract_digit(img, template=True, letters=True):
     # do correlation based template matching, take the highest scoring digit
     img = cv2.resize(img, (100, 100))
     scores = []
@@ -32,6 +32,8 @@ def extract_digit(img, template=True):
         raise Exception("Tried reading digits without initializing templates")
     diffs = {}
     for (digit, digitROI) in DIGITS.items():
+        if digit > 9 and not letters:
+            continue
         if not template:
             res = cv2.absdiff(img, digitROI)
             # res != 0 is a hack b/c count_nonzero is better optimized for bools
@@ -49,10 +51,10 @@ def extract_digit(img, template=True):
     return str(np.argmax(scores))
 
 
-def extract_digits(img, cachekey, template=True, length=None):
+def extract_digits(img, cachekey, template=True, length=None, letters=True):
     res = ""
     ref = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    ret, ref = cv2.threshold(ref, 100, 255, cv2.THRESH_BINARY)
+    ret, ref = cv2.threshold(ref, 80, 255, cv2.THRESH_BINARY)
     # use contours to find bounding boxes around each digit in the score region
     # but only do it once - the digits will always be in the same place, so just store those
     if not REGION_CACHE.get(cachekey):
@@ -82,6 +84,7 @@ def extract_digits(img, cachekey, template=True, length=None):
         return res
     else:
         rects = REGION_CACHE.get(cachekey)
+        first = True
         for x, y, w, h in rects:
             orig_roi = ref[y:y + h, x:x + w]
             if orig_roi.shape[-1] < 10:
@@ -89,11 +92,13 @@ def extract_digits(img, cachekey, template=True, length=None):
             roi = imutils.resize(orig_roi, height=100)
             if roi.shape[-1] > 150:
                 continue
-            res += extract_digit(roi, template=template)
+            res += extract_digit(roi, template=template, letters=first and letters)
+            first = False
         return res
 
 
 if __name__ == '__main__':
     get_template_digits()
-    print extract_digits(cv2.imread("score.png"), "score")
-    print extract_digits(cv2.imread("score.png"), "score", template=False)
+    print extract_digits(cv2.imread("score4.png"), "score", length=6)
+    print extract_digits(cv2.imread("score4.png"), "score", template=False, length=6)
+    print extract_digits(cv2.imread("score4.png"), "score", template=False, length=6)
