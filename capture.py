@@ -4,10 +4,13 @@ import cv2
 import json
 import random
 import time
+import pafy
 from mss import mss
 from read_digits import *
 from regions import *
 from cropper import *
+from vidgear.gears import CamGear
+from youtube_dl import YoutubeDL
 import os
 
 
@@ -83,6 +86,30 @@ def video_capture(fn, cropper):
     cap.release()
 
 
+def video_capture_fast(fn, cropper):
+    stream = CamGear(source=fn).start()
+    while True:
+        img = stream.read()
+        if img is None:
+            break
+        yield cropper.crop(img)
+    stream.stop()
+
+
+def stream_capture(url, cropper):
+    if 'twitch' in url:
+        url = YoutubeDL().extract_info(url, download=False)['url']
+    elif 'youtube' in url:
+        url = get_youtube_url(url)
+    stream = CamGear(source=url).start()
+    while True:
+        img = stream.read()
+        if img is None:
+            break
+        yield cropper.crop(img)
+    stream.stop()
+
+
 def init_pygame(capture_params):
     os.environ['SDL_VIDEO_WINDOW_POS'] = '%s,%s' % (
         capture_params['left'] + capture_params['width'] + 5,
@@ -135,6 +162,7 @@ def capture_tetris(source, capture_params, display=True, fps_limit=60):
                 is_playing = False
                 games.append(current_game)
                 print "game ended: %s (%s)" % (current_game['score'], current_game['lines'])
+                continue
             if current_game['score'] != score_num:
                 current_game['score'] = score_num
                 current_game['score_history'].append((lines_num, score_num))
@@ -205,10 +233,42 @@ def get_cropper_capture():
     return cropper
 
 
+def get_youtube_url(url):
+    # copied from camgear but with a pafy bugfix thats not live on master
+    source_object = pafy.new(url)
+    _source = source_object.getbestvideo("mp4", ftypestrict=False)
+    source = _source.url
+    if source.startswith("https://manifest.googlevideo.com"):
+        source = _source._info['fragment_base_url']
+    return source
+
+
+def get_cropper_stream(url):
+    if 'twitch' in url:
+        url = YoutubeDL().extract_info(url, download=False)['url']
+    elif 'youtube' in url:
+        url = get_youtube_url(url)
+    stream = CamGear(source=url).start()  # YouTube Video URL as input
+    cropper = None
+    while True:
+        img = stream.read()
+        if img is None:
+            break
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        try:
+            cropper = Cropper(gray)
+        except:
+            continue
+        break
+    return cropper
+
+
 def run_video(fn):
     cropper = get_cropper_video(fn)
-    source = video_capture(fn, cropper)
+    source = video_capture_fast(fn, cropper)
+    start = time.time()
     games = capture_tetris(source, cropper.capture_params, display=False, fps_limit=None)
+    print "took %s seconds" % (time.time() - start)
     return games
 
 
@@ -220,5 +280,18 @@ def run_capture():
     return games
 
 
+def run_stream(url):
+    cropper = get_cropper_stream(url)
+    capture_params = cropper.capture_params
+    source = stream_capture(url, cropper)
+    start = time.time()
+    games = capture_tetris(source, capture_params, display=False, fps_limit=None)  #, display=True, fps_limit=None)
+    print "took %s seconds" % (time.time() - start)
+    return games
+
+
 if __name__ == '__main__':
-    run_video('youtube_cap_wr.mkv')
+    # games = run_stream('https://www.youtube.com/watch?v=07lPJF4-pRc')
+    games = run_stream('https://www.twitch.tv/videos/444619406')
+    for game in games:
+        print json.dumps(game)
