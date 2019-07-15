@@ -4,3 +4,6 @@ Pillow
 mss
 pygame
 imutils
+vidgear
+pafy
+youtube-dl
