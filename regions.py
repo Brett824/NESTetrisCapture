@@ -14,6 +14,7 @@ REGION_MAP = {
     "score": {"y": (184, 220), "x": (745, 938)},
     "board": {"y": (133, 675), "x": (372, 687)},
     "lines": {"y": (50, 80), "x": (591, 686)},
+    "level": {"y": (534, 563), "x": (813, 874)},
 }
 
 
@@ -36,3 +37,7 @@ def get_board(img):
 
 def get_lines(img):
     return get_region(img, "lines")
+
+
+def get_level(img):
+    return get_region(img, "level")
