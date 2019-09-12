@@ -5,6 +5,7 @@ from imutils import contours
 
 
 DIGITS = {}
+DIGITS_BOOL = {}
 REGION_CACHE = {}
 
 
@@ -20,6 +21,7 @@ def get_template_digits():
         roi = cv2.resize(roi, (100, 100))
         roi = imutils.resize(roi, height=100)
         DIGITS[i] = roi
+        DIGITS_BOOL[i] = roi != 0
     return DIGITS
 
 
@@ -31,14 +33,12 @@ def extract_digit(img, template=True, letters=True):
     if not DIGITS:
         raise Exception("Tried reading digits without initializing templates")
     diffs = {}
+    img_bool = img != 0 if not template else None
     for (digit, digitROI) in DIGITS.items():
         if digit > 9 and not letters:
             continue
         if not template:
-            res = cv2.absdiff(img, digitROI)
-            # res != 0 is a hack b/c count_nonzero is better optimized for bools
-            percentage = float(np.count_nonzero(res != 0) * 100) / res.size
-            diffs[digit] = percentage
+            diffs[digit] = np.count_nonzero(img_bool ^ DIGITS_BOOL[digit])
         else:
             result = cv2.matchTemplate(img, digitROI,
                                        cv2.TM_CCOEFF_NORMED)
@@ -51,10 +51,10 @@ def extract_digit(img, template=True, letters=True):
     return str(np.argmax(scores))
 
 
-def extract_digits(img, cachekey, template=True, length=None, letters=True):
+def extract_digits(img, cachekey, template=True, length=None, letters=True, thresh=80):
     res = ""
     ref = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    ret, ref = cv2.threshold(ref, 80, 255, cv2.THRESH_BINARY)
+    ret, ref = cv2.threshold(ref, thresh, 255, cv2.THRESH_BINARY)
     # use contours to find bounding boxes around each digit in the score region
     # but only do it once - the digits will always be in the same place, so just store those
     if not REGION_CACHE.get(cachekey):
@@ -99,6 +99,4 @@ def extract_digits(img, cachekey, template=True, length=None, letters=True):
 
 if __name__ == '__main__':
     get_template_digits()
-    print extract_digits(cv2.imread("score4.png"), "score", length=6)
-    print extract_digits(cv2.imread("score4.png"), "score", template=False, length=6)
-    print extract_digits(cv2.imread("score4.png"), "score", template=False, length=6)
+    print extract_digits(cv2.imread("t.png"), "t", length=3)
