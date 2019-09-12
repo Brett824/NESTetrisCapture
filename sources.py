@@ -6,6 +6,79 @@ import numpy as np
 import pafy
 from vidgear.gears import CamGear
 from youtube_dl import YoutubeDL
+from threading import Thread
+import Queue
+import time
+
+
+class VideoBuffer(object):
+    def __init__(self, source, delay=0, buffer_size=1500, most_recent_frame=False):
+        self.source = source
+        self.delay = delay
+        self.buffer_size = buffer_size
+        self.thread = None
+        self.is_stopping = False
+        self.frame = None
+        self.most_recent_frame = most_recent_frame
+        self.reset()
+
+    def start(self):
+        self.thread = Thread(target=self.update, args=())
+        self.thread.daemon = True
+        self.thread.start()
+        return self
+
+    def update(self):
+        while True:
+            if self.is_stopping:
+                break
+
+            ret, frame = self.stream.read()
+
+            if not ret:
+                self.is_stopping = True
+                self.queue.put(None, block=True, timeout=10)
+                self.frame = None
+                continue
+
+            if not self.most_recent_frame or self.queue.qsize() == 0:
+                self.queue.put(frame)
+            else:
+                self.frame = frame
+
+        self.stream.release()
+
+    def iter_frames(self):
+        while True:
+            frame = self.read()
+            if frame is None:
+                return
+            yield frame
+
+    def read(self):
+        if self.most_recent_frame and self.frame is not None:
+            return self.frame
+        else:
+            for i in range(0, 2):
+                try:
+                    return self.queue.get(block=True, timeout=10)
+                except Queue.Empty:
+                    continue
+            return None
+
+    def reset(self):
+        self.queue = Queue.Queue(maxsize=self.buffer_size)
+        self.stream = cv2.VideoCapture(self.source)
+        if self.delay:
+            time.sleep(self.delay)
+        self.thread = None
+        self.is_stopping = False
+
+    def stop(self):
+        self.is_stopping = True
+        self.queue.put(None, block=False)
+        if self.thread is not None:
+            self.thread.join()
 
 
 def screen_capture(cropper):
@@ -29,7 +102,7 @@ def video_capture(fn, cropper):
 
 
 def video_capture_fast(fn, cropper):
-    stream = CamGear(source=fn)
+    stream = VideoBuffer(source=fn, buffer_size=1500)
     stream.stream.set(cv2.CAP_PROP_POS_FRAMES, 5)
     stream.start()
     while True:
@@ -45,9 +118,8 @@ def stream_capture(url, cropper):
         url = YoutubeDL().extract_info(url, download=False)['url']
     elif 'youtube' in url:
         url = get_youtube_url(url)
-    stream = CamGear(source=url).start()
-    while True:
-        img = stream.read()
+    stream = VideoBuffer(source=url).start()
+    for img in stream.iter_frames():
         if img is None:
             break
         yield cropper.crop(img)
@@ -105,16 +177,22 @@ def get_cropper_stream(url):
         url = YoutubeDL().extract_info(url, download=False)['url']
     elif 'youtube' in url:
         url = get_youtube_url(url)
-    stream = CamGear(source=url).start()  # YouTube Video URL as input
+    stream = VideoBuffer(source=url, most_recent_frame=True).start()  # YouTube Video URL as input
     cropper = None
-    while True:
-        img = stream.read()
+    for img in stream.iter_frames():
         if img is None:
             break
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         try:
             cropper = Cropper(gray)
-        except:
+        except Exception:
             continue
         break
+    stream.stop()
     return cropper
+
+
+if __name__ == '__main__':
+    # url = "https://www.youtube.com/watch?v=YQ6KQ20Q8FI"
+    # url = get_youtube_url(url)
+    stream = VideoBuffer(source=url).start()
