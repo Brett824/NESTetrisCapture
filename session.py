@@ -1,5 +1,6 @@
 import numpy as np
 import pygame
+from pygame.locals import DOUBLEBUF
 import cv2
 import json
 import random
@@ -15,6 +16,10 @@ from threading import Thread
 import os
 import datetime
 from sources import *
+import cProfile as profile
+
+
+PIECES = ['t','j','z','o','s','l','i']
 
 
 class TetrisSession(object):
@@ -44,7 +49,8 @@ class TetrisSession(object):
         )
         pygame.init()
         pygame.display.set_caption("NESTetrisCapture")
-        screen = pygame.display.set_mode((375, 650))
+        screen = pygame.display.set_mode((375, 650), DOUBLEBUF)
+        screen.set_alpha(None)
         font = pygame.font.Font(None, 30)
         clock = pygame.time.Clock()
         self.screen = screen
@@ -87,19 +93,28 @@ class TetrisSession(object):
         """
         return board[0:3].all()
 
-    def is_new_piece(self, board):
+    def is_new_piece(self, board, img, old_counts):
         """
         returns if there's a fresh piece on the board
-        check all the different piece starting positions being filled
+        check if theres anything in the top two rows, and if the piece counts on the left changed
         """
-        # TODO this all sucks just OCR stats i guess
-        return (all([board[0][4], board[0][5], board[1][4], board[1][5]]) or  # O
-                all([board[0][5], board[0][6], board[1][4], board[1][5]]) or  # S
-                all([board[0][4], board[0][5], board[1][5], board[1][6]]) or  # Z
-                all([board[0][4], board[0][5], board[0][6], board[1][6]]) or  # J
-                all([board[0][4], board[0][5], board[0][6], board[1][4]]) or  # L
-                all([board[0][3], board[0][4], board[0][5], board[0][6]]) or  # I
-                all([board[0][4], board[0][5], board[0][6], board[1][5]]))  # T
+        in_top_row = board[0:2].any()
+        if not in_top_row:
+            return False, old_counts
+        new_counts = self.get_piece_counts(img)
+        found_diff = False
+        for piece in PIECES:
+            diff = new_counts[piece] - old_counts[piece]
+            if diff in (1, -9):
+                if found_diff:
+                    print "multiple diffs?"
+                    return False, new_counts
+                else:
+                    found_diff = True
+            elif diff:
+                print "weird diffs? (%s, %s)" % (piece, diff)
+                return False, new_counts
+        return found_diff, new_counts
 
     def is_tetris_ready(self, board):
         cropped_board = board[2:]  # cut off the top two rows which can contain the next falling piece
@@ -107,6 +122,21 @@ class TetrisSession(object):
         holes = [np.where(row == 0)[0][0] if sum(row) == 9 else None for row in board[-4:]]
         # check if all the holes are in the same location and the whole column is empty
         return len(set(holes)) == 1 and holes[0] is not None and sum(cropped_board[:, holes[0]]) == 0
+
+    def get_piece_counts(self, img):
+        counts = {}
+        for piece in PIECES:
+            piece_img = get_piece_count(img, piece)
+            # red color digits are tricky, try diff thresh
+            for thresh in (20, 10):
+                piece_count = extract_digits(piece_img, piece, template=False, length=1, letters=False, thresh=thresh)
+                if piece_count:
+                    break
+            else:
+                cv2.imwrite("failed.png", piece_img)
+                print "failed %s" % piece
+            counts[piece] = int(piece_count)
+        return counts
 
     def run_game(self):
         done = False
@@ -116,11 +146,19 @@ class TetrisSession(object):
             self.init_pygame()
         is_playing = False
         drought = 0
+        droughts = []
         was_tetris_ready = False
-        was_new_piece = False
         self.current_game = {}
         self.games = []
+        piece_counts = {}
+        per_second = 0
+        last_time = time.time()
         for img in self.source:
+            per_second += 1
+            if time.time() - last_time > 1:
+                print "Per second: %s" % per_second
+                last_time = time.time()
+                per_second = 0
             if done:
                 break
             lines = get_lines(img)
@@ -134,6 +172,9 @@ class TetrisSession(object):
                 level_string = -1 if level_string > 19 else level_string
                 self.timereport("game started (level %s)" % level_string)
                 is_playing = True
+                piece_counts = dict(zip(PIECES, [0] * len(PIECES)))  # initialize at 0 in an obnoxious way
+                drought = 0
+                droughts = []
                 self.current_game = {
                     'lines': 0,
                     'score': 0,
@@ -153,6 +194,8 @@ class TetrisSession(object):
                     self.current_game['ended'] = True
                     self.games.append(self.current_game)
                     self.timereport("game ended: %s (%s)" % (self.current_game['score'], self.current_game['lines']))
+                    if droughts:
+                        self.timereport("avg drought: %s" % (sum(droughts)/float(len(droughts))))
                     continue
                 # if we werent able to get the level first try, keep trying
                 if self.current_game['level'] == -1:
@@ -165,20 +208,21 @@ class TetrisSession(object):
                     self.current_game['score_history'].append((lines_num, score_num))
                 if self.current_game['lines'] != lines_num:
                     if lines_num - self.current_game['lines'] == 4 and was_tetris_ready:
+                        print "Tetris, drought: %s" % drought
+                        droughts.append(drought)
                         drought = 0
                     self.current_game['lines'] = lines_num
                     self.current_game['line_history'].append(lines_num)
                 # make sure multiple frames of new pieces dont add up
-                current_new_piece = self.is_new_piece(field)
-                is_new_piece = not was_new_piece and current_new_piece
-                was_new_piece = current_new_piece
+                is_new_piece, piece_counts = self.is_new_piece(field, img, piece_counts)
                 # drought counter logic
                 if is_new_piece and self.is_tetris_ready(field):
                     drought += 1
                     was_tetris_ready = self.is_tetris_ready(field)
                 self.current_game['drought'] = drought
             if self.display:
-                self.draw(board, field, self.current_game)
+                if not self.draw(board, field, self.current_game):
+                    break
 
     def disp_tetris(self, field, screen, w, h):
         y_block_size = h / 20
@@ -198,7 +242,7 @@ class TetrisSession(object):
         h, w, _ = board.shape
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                done = True
+                return False
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_s:
                     pass  # TODO figure out this debug option
@@ -222,6 +266,7 @@ class TetrisSession(object):
         self.screen.blit(lines_text, (200, 35))
         self.screen.blit(drought_text, (200, 70))
         pygame.display.flip()
+        return True
 
 
 def run_capture():
@@ -237,7 +282,7 @@ def run_capture():
 def run_video(fn):
     cropper = get_cropper_video(fn)
     source = video_capture_fast(fn, cropper)
-    capture = TetrisSession(cropper.capture_params, source, display=True)
+    capture = TetrisSession(cropper.capture_params, source, display=False, fps_limit=30)
     capture.start()
     return capture
 
@@ -251,8 +296,8 @@ def run_stream(url):
 
 
 if __name__ == '__main__':
-    # session = run_capture()
-    session = run_stream('https://www.youtube.com/watch?v=07lPJF4-pRc')
-    while True:
-        time.sleep(10)
-        print session.current_game.get('score')
+    session = run_capture()
+    # session = run_stream("https://www.youtube.com/watch?v=IcO18WE0R1U")
+    # session = run_video("koryan_wr.webm")
+    session.thread.join()
+    # session = run_stream('https://www.youtube.com/watch?v=07lPJF4-pRc')

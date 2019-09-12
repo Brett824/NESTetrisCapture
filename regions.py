@@ -15,6 +15,13 @@ REGION_MAP = {
     "board": {"y": (133, 675), "x": (372, 687)},
     "lines": {"y": (50, 80), "x": (591, 686)},
     "level": {"y": (534, 563), "x": (813, 874)},
+    "tcount": {"y": (290, 325), "x": (249, 281)},
+    "jcount": {"y": (344, 379), "x": (249, 281)},
+    "zcount": {"y": (398, 433), "x": (249, 281)},
+    "ocount": {"y": (452, 487), "x": (249, 281)},
+    "scount": {"y": (506, 541), "x": (249, 281)},
+    "lcount": {"y": (560, 595), "x": (249, 281)},
+    "icount": {"y": (614, 649), "x": (249, 281)},
 }
 
 
@@ -41,3 +48,7 @@ def get_lines(img):
 
 def get_level(img):
     return get_region(img, "level")
+
+
+def get_piece_count(img, piece):
+    return get_region(img, "%scount" % piece)
