@@ -124,6 +124,7 @@ class TetrisSession(object):
         return len(set(holes)) == 1 and holes[0] is not None and sum(cropped_board[:, holes[0]]) == 0
 
     def get_piece_counts(self, img):
+        # get only the last digit of piece counts for speed - we can easily figure out the total based on that
         counts = {}
         for piece in PIECES:
             piece_img = get_piece_count(img, piece)
@@ -165,6 +166,7 @@ class TetrisSession(object):
             lines_string = extract_digits(lines, "lines", template=False, length=3, letters=False)
             board = get_board(img)
             field = self.img_to_tetris_array(board)
+            # detect game start
             if lines_string and int(lines_string) == 0 and not is_playing and self.is_clean_board(field):
                 level = get_level(img)
                 level_string = int(extract_digits(level, "level", template=False, length=2))
@@ -189,6 +191,7 @@ class TetrisSession(object):
                 score_string = extract_digits(score, "score", template=False, length=6)
                 lines_num = int(lines_string)
                 score_num = int(score_string)
+                # check for end game (lines_num check is a hack for bad OCR of all-black pixels)
                 if lines_num > 500 or self.check_end_board(field):
                     is_playing = False
                     self.current_game['ended'] = True

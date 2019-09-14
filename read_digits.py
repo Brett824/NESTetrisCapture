@@ -26,7 +26,9 @@ def get_template_digits():
 
 
 def extract_digit(img, template=True, letters=True):
-    # do correlation based template matching, take the highest scoring digit
+    # either do correlation based template matching, take the highest scoring digit
+    # or simply XOR two thresholded binary images, and take the most similar
+    # template matching is significantly slower but more reliable - not good for production
     img = cv2.resize(img, (100, 100))
     scores = []
     score = 0
@@ -57,6 +59,7 @@ def extract_digits(img, cachekey, template=True, length=None, letters=True, thre
     ret, ref = cv2.threshold(ref, thresh, 255, cv2.THRESH_BINARY)
     # use contours to find bounding boxes around each digit in the score region
     # but only do it once - the digits will always be in the same place, so just store those
+    # (also always do template style matching when finding initial contours)
     if not REGION_CACHE.get(cachekey):
         refCnts = cv2.findContours(ref.copy(), cv2.RETR_EXTERNAL,
                                    cv2.CHAIN_APPROX_SIMPLE)
